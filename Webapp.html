@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pole Vault Simulator</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0b1020;
+      color: #f7f7ff;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    header {
+      padding: 10px 20px;
+      background: #111827;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    header h1 {
+      font-size: 18px;
+      margin: 0;
+    }
+    #controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      font-size: 14px;
+      flex-wrap: wrap;
+    }
+    label span {
+      margin-right: 4px;
+    }
+    input[type="number"] {
+      width: 70px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      border: 1px solid #4b5563;
+      background: #111827;
+      color: #f7f7ff;
+    }
+    button {
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: none;
+      background: #3b82f6;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 10px;
+    }
+    canvas {
+      background: linear-gradient(#0f172a 40%, #15803d 40%);
+      border-radius: 10px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+      max-width: 100%;
+    }
+    #info {
+      padding: 6px 20px 12px;
+      font-size: 13px;
+      color: #d1d5db;
+    }
+    #result {
+      font-weight: 600;
+      color: #facc15;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Pole Vault Simulator</h1>
+    <div id="controls">
+      <label>
+        <span>Run speed (m/s)</span>
+        <input id="speedInput" type="number" value="8" min="4" max="11" step="0.5" />
+      </label>
+      <label>
+        <span>Pole length (m)</span>
+        <input id="poleInput" type="number" value="4.8" min="3" max="6.5" step="0.1" />
+      </label>
+      <label>
+        <span>Bar height (m)</span>
+        <input id="barInput" type="number" value="5.0" min="3" max="6.5" step="0.1" />
+      </label>
+      <button id="vaultBtn">Vault</button>
+      <button id="resetBtn">Reset</button>
+    </div>
+  </header>
+
+  <main>
+    <canvas id="sim" width="900" height="420"></canvas>
+  </main>
+
+  <div id="info">
+    <span id="result">Adjust the numbers and hit Vault to see if you clear the bar.</span>
+  </div>
+
+  <script>
+    const g = 9.81;
+    const canvas = document.getElementById("sim");
+    const ctx = canvas.getContext("2d");
+
+    const speedInput = document.getElementById("speedInput");
+    const poleInput = document.getElementById("poleInput");
+    const barInput = document.getElementById("barInput");
+    const vaultBtn = document.getElementById("vaultBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const resultBox = document.getElementById("result");
+
+    const groundY = canvas.height * 0.75;
+    const runwayStartX = 80;
+    const plantX = 420;
+    const barX = 720;
+
+    const scale = 50; // 1 m = 50 px
+
+    let state = "idle";
+    let t = 0;
+    const dt = 1 / 60;
+
+    let runSpeed = 8;
+    let poleLength = 4.8;
+    let barHeight = 5;
+    let cmHeightAtPlant = 1.2;
+
+    let vx = 0;
+    let vy = 0;
+    let flightStartX = 0;
+    let flightStartY = 0;
+    let animationId = null;
+
+    function drawScene(vaulterX, vaulterY, poleAngle, polePlanted, barH) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#15803d";
+      ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+          // runway
+      ctx.fillStyle = "#1e293b";
+      ctx.fillRect(0, groundY - 8, canvas.width, 8);
+
+      // planting box
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(plantX - 8, groundY - 4, 16, 12);
+
+      // bar and standards
+      const barYPixels = groundY - barH * scale;
+      ctx.strokeStyle = "#e5e7eb";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(barX, groundY);
+      ctx.lineTo(barX, barYPixels + 10);
+      ctx.moveTo(barX + 60, groundY);
+      ctx.lineTo(barX + 60, barYPixels + 10);
+      ctx.stroke();
+
+      ctx.strokeStyle = "#fbbf24";
+      ctx.beginPath();
+      ctx.moveTo(barX, barYPixels);
+      ctx.lineTo(barX + 60, barYPixels);
+      ctx.stroke();
+
+      // pole
+      if (polePlanted) {
+        const baseX = plantX;
+        const baseY = groundY;
+        const tipX = baseX - Math.cos(poleAngle) * poleLength * scale;
+        const tipY = baseY - Math.sin(poleAngle) * poleLength * scale;
+        ctx.strokeStyle = "#e5e7eb";
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        ctx.lineTo(tipX, tipY);
+        ctx.stroke();
+      } else {
+        const tipX = vaulterX + poleLength * 0.7 * scale;
+        const tipY = vaulterY;
+        const tailX = vaulterX - poleLength * 0.3 * scale;
+        const tailY = vaulterY + 10;
+        ctx.strokeStyle = "#e5e7eb";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(tailX, tailY);
+        ctx.lineTo(tipX, tipY);
+        ctx.stroke();
+      }
+
+      // vaulter body
+      ctx.fillStyle = "#f97316";
+      ctx.beginPath();
+      ctx.arc(vaulterX, vaulterY - 18, 10, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "#f9fafb";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(vaulterX, vaulterY - 10);
+      ctx.lineTo(vaulterX, vaulterY + 20);
+      ctx.stroke();
+
+      // legs
+      ctx.beginPath();
+      ctx.moveTo(vaulterX, vaulterY + 20);
+      ctx.lineTo(vaulterX - 10, vaulterY + 40);
+      ctx.moveTo(vaulterX, vaulterY + 20);
+      ctx.lineTo(vaulterX + 10, vaulterY + 40);
+      ctx.stroke();
+
+      // arms
+      ctx.beginPath();
+      ctx.moveTo(vaulterX, vaulterY);
+      ctx.lineTo(vaulterX + 14, vaulterY - 6);
+      ctx.moveTo(vaulterX, vaulterY - 4);
+      ctx.lineTo(vaulterX - 14, vaulterY - 10);
+      ctx.stroke();
+    }
+
+    function resetScene() {
+      cancelAnimationFrame(animationId);
+      state = "idle";
+      t = 0;
+      runSpeed = parseFloat(speedInput.value);
+      poleLength = parseFloat(poleInput.value);
+      barHeight = parseFloat(barInput.value);
+      resultBox.textContent =
+        "Adjust the numbers and hit Vault to see if you clear the bar.";
+      const startY = groundY - 0.6 * cmHeightAtPlant * scale;
+      drawScene(runwayStartX, startY, 0, false, barHeight);
+    }
+
+    function startVault() {
+      if (state !== "idle") return;
+      runSpeed = parseFloat(speedInput.value);
+      poleLength = parseFloat(poleInput.value);
+      barHeight = parseFloat(barInput.value);
+
+      state = "run";
+      t = 0;
+      resultBox.textContent = "Accelerating down the runway...";
+      animate();
+    }
+
+    function animate() {
+      animationId = requestAnimationFrame(animate);
+      t += dt;
+
+      const barYPixels = groundY - barHeight * scale;
+
+      if (state === "run") {
+        const x = runwayStartX + runSpeed * scale * t;
+        const y = groundY - 0.6 * cmHeightAtPlant * scale;
+
+        if (x >= plantX - 5) {
+          state = "swing";
+          t = 0;
+        }
+        drawScene(x, y, 0, false, barHeight);
+      } else if (state === "swing") {
+        const swingDuration = 1.1; // seconds
+        const progress = Math.min(t / swingDuration, 1);
+        const angle = progress * Math.PI / 2;
+        const cmX = plantX - Math.cos(angle) * (poleLength - 0.8) * scale;
+        const cmY = groundY - Math.sin(angle) * (poleLength - 0.8) * scale;
+
+        drawScene(cmX, cmY, angle, true, barHeight);
+
+        if (progress >= 1) {
+          // convert horizontal KE into vertical launch
+          const takeoffSpeed = runSpeed * 0.9;
+          vx = takeoffSpeed * 0.15;      // small forward speed
+          vy = takeoffSpeed * 0.85;      // mostly upward
+
+          flightStartX = cmX;
+          flightStartY = cmY;
+          t = 0;
+          state = "flight";
+          resultBox.textContent = "Riding the pole and taking off...";
+        }
+      } else if (state === "flight") {
+        const x = flightStartX + vx * scale * t;
+        const y = flightStartY - (vy * t - 0.5 * g * t * t) * scale;
+
+        drawScene(x, y, Math.PI / 2, false, barHeight);
+
+        if (y >= groundY - 20) {
+          state = "done";
+          const peakHeight = flightStartY + (vy * vy) / (2 * g) * 1; // meters, rough
+          const cleared = peakHeight / scale > barHeight;
+          resultBox.textContent = cleared
+            ? "Clear. The bar lives another day."
+            : "No height. The bar wins this round.";
+        } else if (x > barX && x < barX + 60 && y > barYPixels - 10 && y < barYPixels + 10) {
+          state = "done";
+          resultBox.textContent = "You clipped the bar on the way over.";
+        }
+      }
+    }
+
+    vaultBtn.addEventListener("click", startVault);
+    resetBtn.addEventListener("click", resetScene);
+
+    resetScene();
+  </script>
+</body>
+</html>
+
+
